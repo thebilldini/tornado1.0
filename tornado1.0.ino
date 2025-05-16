@@ -46,10 +46,12 @@ CRGB ledsBlue[NUM_CHASE_LEDS];
 Adafruit_NeoPixel smallCloud(NUM_LEDS_SMALL_CLOUD, DATA_PIN_3, NEO_GRBW + NEO_KHZ400);
 Adafruit_NeoPixel largeCloud(NUM_LEDS_LARGE_CLOUD, DATA_PIN_4, NEO_GRBW + NEO_KHZ400);
 
-enum STATES { OFF,
-              RED_ON,
-              BLUE_ON,
-              STORM };
+enum STATES {
+  OFF,
+  RED_ACTIVE,    // Red rope + small cloud
+  BLUE_ACTIVE,   // Blue rope + large cloud
+  BOTH_ACTIVE    // Both ropes + both clouds
+};
 
 enum BUTTONS { RED_BUTTON,
                BLUE_BUTTON,
@@ -138,89 +140,77 @@ void updateButtons() {
 }
 
 void updateState() {
-  //store button values in temp variable to keep them consistent
-  // Serial.println(state);
   bool tempRed = buttons[RED_BUTTON].fell();
   bool tempBlue = buttons[BLUE_BUTTON].fell();
-  //update time variables
   currentMillis = millis();
   timeDifference = currentMillis - initialMillis;
 
-  //
-  //TIMEOUT Case: Switch to off if exhibit active for longer than TIMEOUT
-  //STORM only ends by timeout
+  // TIMEOUT: turn off everything
   if (timeDifference > TIMEOUT && state != OFF) {
     state = OFF;
     initialMillis = currentMillis;
-    blueChase = false;
     redChase = false;
-    Serial.println("Timeout ");
-    Serial.println(timeDifference);
-  }
-  //OFF Case 1: Switch from OFF to STORM when both buttons are pressed
-  if (state == OFF && tempRed && tempBlue) {
-    state = STORM;
-    initialMillis = currentMillis;
-    blueChase = true;
-    redChase = true;
-    Serial.println("Off 1");
-  }
-  //OFF Case 2: Switch from OFF to RED_ON when red button is pressed
-  else if (state == OFF && tempRed) {
-    state = RED_ON;
-    initialMillis = currentMillis;
     blueChase = false;
-    redChase = true;
-    Serial.println("Off 2");
   }
-  //OFF Case 3: Switch from OFF to BLUE_ON when red button is pressed
-  else if (state == OFF && tempBlue) {
-    state = BLUE_ON;
-    initialMillis = currentMillis;
-    blueChase = true;
-    redChase = false;
-    Serial.println("Off 3");
-  }
-  //RED_ON Case: Switch from RED_ON to BOTH_ON when blue button is pressed
-  else if (state == RED_ON && tempBlue) {
-    state = STORM;
-    initialMillis = currentMillis;
-    blueChase = true;
-    redChase = true;
-    Serial.println("Red Storm");
-  }
-  //BLUE_ON Case: Switch from RED_ON to BOTH_ON when blue button is pressed
-  else if (state == BLUE_ON && tempRed) {
-    state = STORM;
-    initialMillis = currentMillis;
-    blueChase = true;
-    redChase = true;
-    Serial.println("Blue Storm");
-  }
-  //Management of cloud states and times
-  if (state == STORM) {
-    for (int i = 0; i < NUM_CLOUDS; i++) {
-      for (int j = 0; j < NUM_CLOUD_STATES; j++) {
-        //case 1: time exceeds time limit for for the last state, so add a random time to how long it will be in the standard state
-        if (currentMillis >= CLOUD_STATE_TIMES[j] + cloudTimer[i] && cloudState[i] == NUM_CLOUD_STATES - 1) {
-          cloudTimer[i] = currentMillis + random(0, MAX_TME_BETWEEN_STRIKES);
-          //increase cloud state by 1, rolls over to standby. Off is outside the normal cloud states
-          cloudState[i] = (cloudState[i] + 1) % NUM_CLOUD_STATES;
-          // Serial.println(cloudState[i]);
-        }  //case 2: regular transisitions; when time limit is exceeded, change state by 1
-        else if (currentMillis >= CLOUD_STATE_TIMES[j] + cloudTimer[i] && cloudState[i] == j) {
-          cloudTimer[i] = currentMillis;
-          cloudState[i] = (cloudState[i] + 1) % NUM_CLOUD_STATES;
-          // Serial.println(cloudState[i]);
-        }
+
+  // State transitions
+  switch (state) {
+    case OFF:
+      if (tempRed && tempBlue) {
+        state = BOTH_ACTIVE;
+        initialMillis = currentMillis;
+      } else if (tempRed) {
+        state = RED_ACTIVE;
+        initialMillis = currentMillis;
+      } else if (tempBlue) {
+        state = BLUE_ACTIVE;
+        initialMillis = currentMillis;
       }
-    }
+      break;
+    case RED_ACTIVE:
+      if (tempBlue) {
+        state = BOTH_ACTIVE;
+        initialMillis = currentMillis;
+      }
+      break;
+    case BLUE_ACTIVE:
+      if (tempRed) {
+        state = BOTH_ACTIVE;
+        initialMillis = currentMillis;
+      }
+      break;
+    case BOTH_ACTIVE:
+      // Optionally, you can allow going back to single states if a button is released
+      // Or require timeout to return to OFF
+      break;
   }
-  //If the exhibit isn't in storm state, set the clouds to off
-  else {
-    for (int i = 0; i < NUM_CLOUDS; i++) {
-      cloudState[i] = STANDBY;
-    }
+
+  // Set chase and cloud states based on main state
+  switch (state) {
+    case OFF:
+      redChase = false;
+      blueChase = false;
+      cloudState[SMALL_CLOUD] = STANDBY;
+      cloudState[LARGE_CLOUD] = STANDBY;
+      break;
+    case RED_ACTIVE:
+      redChase = true;
+      blueChase = false;
+      cloudState[SMALL_CLOUD] = FIRST_FLASH; // or your desired active state
+      cloudState[LARGE_CLOUD] = STANDBY;
+      break;
+    case BLUE_ACTIVE:
+      redChase = false;
+      blueChase = true;
+      cloudState[SMALL_CLOUD] = STANDBY;
+      cloudState[LARGE_CLOUD] = FIRST_FLASH; // or your desired active state
+      break;
+    case BOTH_ACTIVE:
+      redChase = true;
+      blueChase = true;
+      cloudState[SMALL_CLOUD] = FIRST_FLASH; // or a special state for both
+      cloudState[LARGE_CLOUD] = FIRST_FLASH;
+      break;
   }
 }
 
@@ -263,74 +253,76 @@ void alternate() {
 }
 //chase updates where the chase pattern when the strand in question is in an active phase
 void chase() {
-  static uint8_t redFillCount = 0;
-  static uint8_t blueFillCount = 0;
-  static uint32_t lastFillMillisRed = 0;
-  static uint32_t lastFillMillisBlue = 0;
-  static bool prevRedChase = false;
-  static bool prevBlueChase = false;
-  const uint16_t fillDelay = 70; // 3 seconds for 43 LEDs
-
-  // Reset fill count only on transition from inactive to active
-  if (redChase && !prevRedChase) {
-    redFillCount = 0;
-    lastFillMillisRed = currentMillis;
-  }
-  if (blueChase && !prevBlueChase) {
-    blueFillCount = 0;
-    lastFillMillisBlue = currentMillis;
-  }
-
-  // RED: gradual fill in active, chase in hold
-  if (redChase) {
-    if (currentMillis - lastFillMillisRed > fillDelay && redFillCount < NUM_CHASE_LEDS) {
-      redFillCount++;
-      lastFillMillisRed = currentMillis;
-    }
-    for (int i = 0; i < NUM_CHASE_LEDS; i++) {
-      if (i < redFillCount) {
-        ledsRed[i].setHSV(RED_H, RED_S, BRIGHTNESS);
-      } else {
-        ledsRed[i] = CRGB::Black;
-      }
-    }
-  } else {
-    for (int LED = 0; LED < NUM_CHASE_LEDS; LED++) {
-      ledsRed[LED] = CRGB::Black;
-    }
-    ledsRed[LEDIndex].setHSV(RED_H, RED_S, BRIGHTNESS);
-  }
-
-  // BLUE: gradual fill in active, chase in hold
-  if (blueChase) {
-    if (currentMillis - lastFillMillisBlue > fillDelay && blueFillCount < NUM_CHASE_LEDS) {
-      blueFillCount++;
-      lastFillMillisBlue = currentMillis;
-    }
-    for (int i = 0; i < NUM_CHASE_LEDS; i++) {
-      if (i < blueFillCount) {
-        ledsBlue[i].setHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-      } else {
-        ledsBlue[i] = CRGB::Black;
-      }
-    }
-  } else {
-    for (int LED = 0; LED < NUM_CHASE_LEDS; LED++) {
-      ledsBlue[LED] = CRGB::Black;
-    }
-    ledsBlue[LEDIndex].setHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-  }
-
-  // Store previous states for next loop
-  prevRedChase = redChase;
-  prevBlueChase = blueChase;
-
-  // Update LEDIndex for chase effect
   if ((timeDifference) % CHASE_PERIOD < CHASE_FREQUENCY && chaseUpdate) {
+    //reds go in the opposite direction of blue
+    if (redChase) {
+      ledsRed[map((LEDIndex) /**/ % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
+      ledsRed[map((LEDIndex + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+      ledsRed[map((LEDIndex + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
+      ledsRed[map((LEDIndex + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+
+      ledsRed[map((LEDIndex + 1 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
+      ledsRed[map((LEDIndex + 1 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+      ledsRed[map((LEDIndex + 1 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
+      ledsRed[map((LEDIndex + 1 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+
+      ledsRed[map((LEDIndex + 2 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
+      ledsRed[map((LEDIndex + 2 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+      ledsRed[map((LEDIndex + 2 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
+      ledsRed[map((LEDIndex + 2 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+
+      ledsRed[map((LEDIndex + 3 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
+      ledsRed[map((LEDIndex + 3 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+      ledsRed[map((LEDIndex + 3 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
+      ledsRed[map((LEDIndex + 3 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+
+      ledsRed[map((LEDIndex + 4 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
+      ledsRed[map((LEDIndex + 4 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+      ledsRed[map((LEDIndex + 4 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
+      ledsRed[map((LEDIndex + 4 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+
+      ledsRed[map((LEDIndex + 5 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
+      ledsRed[map((LEDIndex + 5 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+      ledsRed[map((LEDIndex + 5 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
+      ledsRed[map((LEDIndex + 5 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+    }
+    if (blueChase) {
+      ledsBlue[(LEDIndex) /**/ % NUM_CHASE_LEDS] = CRGB::Black;
+      ledsBlue[(LEDIndex + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+      ledsBlue[(LEDIndex + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      ledsBlue[(LEDIndex + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+
+      ledsBlue[(LEDIndex + 1 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
+      ledsBlue[(LEDIndex + 1 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+      ledsBlue[(LEDIndex + 1 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      ledsBlue[(LEDIndex + 1 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+
+      ledsBlue[(LEDIndex + 2 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
+      ledsBlue[(LEDIndex + 2 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+      ledsBlue[(LEDIndex + 2 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      ledsBlue[(LEDIndex + 2 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+
+      ledsBlue[(LEDIndex + 3 * CHASE_GAP) % NUM_CHASE_LEDS] = CRGB::Black;
+      ledsBlue[(LEDIndex + 3 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+      ledsBlue[(LEDIndex + 3 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      ledsBlue[(LEDIndex + 3 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+
+      ledsBlue[(LEDIndex + 4 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
+      ledsBlue[(LEDIndex + 4 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+      ledsBlue[(LEDIndex + 4 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      ledsBlue[(LEDIndex + 4 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+
+      ledsBlue[(LEDIndex + 5 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
+      ledsBlue[(LEDIndex + 5 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+      ledsBlue[(LEDIndex + 5 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      ledsBlue[(LEDIndex + 5 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
+    }
     chaseUpdate = false;
-    LEDIndex = (LEDIndex + 1) % NUM_CHASE_LEDS;
-  } else if (timeDifference % CHASE_PERIOD >= CHASE_FREQUENCY && !chaseUpdate) {
+  }
+  //update index
+  else if (timeDifference % CHASE_PERIOD >= CHASE_FREQUENCY && !chaseUpdate) {
     chaseUpdate = true;
+    LEDIndex = (LEDIndex + 1) % NUM_CHASE_LEDS;
   }
 }
 //takes a cloud number and updates that clouds lighting
