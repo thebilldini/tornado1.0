@@ -20,8 +20,8 @@ const int CHASE_GAP = 7;
 #define NUM_LEDS_SMALL_CLOUD 49
 #define NUM_LEDS_LARGE_CLOUD 56
 #define BRIGHTNESS 255
-#define BLUE_H 140
-#define BLUE_S 140
+#define BLUE_H 170
+#define BLUE_S 255
 #define RED_H 0
 #define RED_S 255
 #define ALTERNATOR_PERIOD 250
@@ -96,6 +96,13 @@ uint8_t cloudFlickerG[NUM_CLOUDS] = {0, 0};
 uint8_t cloudFlickerB[NUM_CLOUDS] = {0, 0};
 uint8_t cloudFlickerFade[NUM_CLOUDS] = {0, 0};
 unsigned long cloudFlickerFadeDuration[NUM_CLOUDS] = {0, 0}; // NEW: random fade duration
+
+// Add at the top (after other globals)
+unsigned long fillStartMillis = 0;
+int fillIndex = 0;
+bool fillBlanked = false;
+const unsigned long FILL_STEP_TIME = 20; // ms per LED fill
+const unsigned long FILL_HOLD_TIME = 200; // ms to hold before blanking
 
 void setup() {
   Serial.begin(115200);
@@ -226,7 +233,11 @@ void updateState() {
 
 void runInteractive() {
   alternate();
-  chase();
+  if (redChase || blueChase) {
+    gradualFillEffect();
+  } else {
+    chase();
+  }
   cloudLights();
   blowers();
   FastLED.show();
@@ -449,4 +460,58 @@ void blowers() {
   digitalWrite(RED_BUTTON_LED, !redChase);
   digitalWrite(BLUE_BUTTON_OUTPUT, blueChase);
   digitalWrite(BLUE_BUTTON_LED, !blueChase);
+}
+
+// New function for gradual fill effect
+void gradualFillEffect() {
+  static unsigned long lastStep = 0;
+  static int maxFill = NUM_CHASE_LEDS;
+  unsigned long now = millis();
+
+  // Reset if state just became active
+  if (!fillBlanked && fillIndex == 0) {
+    fillStartMillis = now;
+  }
+
+  // Gradually fill
+  if (!fillBlanked && fillIndex < maxFill && now - lastStep > FILL_STEP_TIME) {
+    lastStep = now;
+    fillIndex++;
+    // Fill red
+    if (redChase) {
+      for (int i = 0; i < fillIndex; i++) {
+        ledsRed[i] = CHSV(RED_H, RED_S, BRIGHTNESS);
+      }
+      for (int i = fillIndex; i < maxFill; i++) {
+        ledsRed[i] = CRGB::Black;
+      }
+    }
+    // Fill blue
+    if (blueChase) {
+      for (int i = 0; i < fillIndex; i++) {
+        ledsBlue[i] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      }
+      for (int i = fillIndex; i < maxFill; i++) {
+        ledsBlue[i] = CRGB::Black;
+      }
+    }
+  }
+
+  // Hold full for a moment, then blank all at once
+  if (!fillBlanked && fillIndex >= maxFill && now - fillStartMillis > (FILL_STEP_TIME * maxFill + FILL_HOLD_TIME)) {
+    fillBlanked = true;
+    // Blank all
+    for (int i = 0; i < maxFill; i++) {
+      if (redChase) ledsRed[i] = CRGB::Black;
+      if (blueChase) ledsBlue[i] = CRGB::Black;
+    }
+    lastStep = now;
+  }
+
+  // After blank, reset for next cycle
+  if (fillBlanked && now - lastStep > FILL_HOLD_TIME) {
+    fillIndex = 0;
+    fillBlanked = false;
+    fillStartMillis = now;
+  }
 }
