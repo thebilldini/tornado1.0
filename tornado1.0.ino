@@ -263,76 +263,74 @@ void alternate() {
 }
 //chase updates where the chase pattern when the strand in question is in an active phase
 void chase() {
-  if ((timeDifference) % CHASE_PERIOD < CHASE_FREQUENCY && chaseUpdate) {
-    //reds go in the opposite direction of blue
-    if (redChase) {
-      ledsRed[map((LEDIndex) /**/ % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
-      ledsRed[map((LEDIndex + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-      ledsRed[map((LEDIndex + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
-      ledsRed[map((LEDIndex + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
+  static uint8_t redFillCount = 0;
+  static uint8_t blueFillCount = 0;
+  static uint32_t lastFillMillisRed = 0;
+  static uint32_t lastFillMillisBlue = 0;
+  static bool prevRedChase = false;
+  static bool prevBlueChase = false;
+  const uint16_t fillDelay = 70; // 3 seconds for 43 LEDs
 
-      ledsRed[map((LEDIndex + 1 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
-      ledsRed[map((LEDIndex + 1 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-      ledsRed[map((LEDIndex + 1 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
-      ledsRed[map((LEDIndex + 1 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-
-      ledsRed[map((LEDIndex + 2 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
-      ledsRed[map((LEDIndex + 2 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-      ledsRed[map((LEDIndex + 2 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
-      ledsRed[map((LEDIndex + 2 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-
-      ledsRed[map((LEDIndex + 3 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
-      ledsRed[map((LEDIndex + 3 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-      ledsRed[map((LEDIndex + 3 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
-      ledsRed[map((LEDIndex + 3 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-
-      ledsRed[map((LEDIndex + 4 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
-      ledsRed[map((LEDIndex + 4 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-      ledsRed[map((LEDIndex + 4 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
-      ledsRed[map((LEDIndex + 4 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-
-      ledsRed[map((LEDIndex + 5 * CHASE_GAP /**/) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CRGB::Black;
-      ledsRed[map((LEDIndex + 5 * CHASE_GAP + 1) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-      ledsRed[map((LEDIndex + 5 * CHASE_GAP + 2) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, BRIGHTNESS);
-      ledsRed[map((LEDIndex + 5 * CHASE_GAP + 3) % NUM_CHASE_LEDS, 0, NUM_CHASE_LEDS - 1, NUM_CHASE_LEDS - 1, 0)] = CHSV(RED_H, RED_S, HALF_BRIGHTNESS);
-    }
-    if (blueChase) {
-      ledsBlue[(LEDIndex) /**/ % NUM_CHASE_LEDS] = CRGB::Black;
-      ledsBlue[(LEDIndex + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-      ledsBlue[(LEDIndex + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-      ledsBlue[(LEDIndex + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-
-      ledsBlue[(LEDIndex + 1 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
-      ledsBlue[(LEDIndex + 1 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-      ledsBlue[(LEDIndex + 1 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-      ledsBlue[(LEDIndex + 1 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-
-      ledsBlue[(LEDIndex + 2 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
-      ledsBlue[(LEDIndex + 2 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-      ledsBlue[(LEDIndex + 2 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-      ledsBlue[(LEDIndex + 2 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-
-      ledsBlue[(LEDIndex + 3 * CHASE_GAP) % NUM_CHASE_LEDS] = CRGB::Black;
-      ledsBlue[(LEDIndex + 3 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-      ledsBlue[(LEDIndex + 3 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-      ledsBlue[(LEDIndex + 3 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-
-      ledsBlue[(LEDIndex + 4 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
-      ledsBlue[(LEDIndex + 4 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-      ledsBlue[(LEDIndex + 4 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-      ledsBlue[(LEDIndex + 4 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-
-      ledsBlue[(LEDIndex + 5 * CHASE_GAP /**/) % NUM_CHASE_LEDS] = CRGB::Black;
-      ledsBlue[(LEDIndex + 5 * CHASE_GAP + 1) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-      ledsBlue[(LEDIndex + 5 * CHASE_GAP + 2) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, BRIGHTNESS);
-      ledsBlue[(LEDIndex + 5 * CHASE_GAP + 3) % NUM_CHASE_LEDS] = CHSV(BLUE_H, BLUE_S, HALF_BRIGHTNESS);
-    }
-    chaseUpdate = false;
+  // Reset fill count only on transition from inactive to active
+  if (redChase && !prevRedChase) {
+    redFillCount = 0;
+    lastFillMillisRed = currentMillis;
   }
-  //update index
-  else if (timeDifference % CHASE_PERIOD >= CHASE_FREQUENCY && !chaseUpdate) {
-    chaseUpdate = true;
+  if (blueChase && !prevBlueChase) {
+    blueFillCount = 0;
+    lastFillMillisBlue = currentMillis;
+  }
+
+  // RED: gradual fill in active, chase in hold
+  if (redChase) {
+    if (currentMillis - lastFillMillisRed > fillDelay && redFillCount < NUM_CHASE_LEDS) {
+      redFillCount++;
+      lastFillMillisRed = currentMillis;
+    }
+    for (int i = 0; i < NUM_CHASE_LEDS; i++) {
+      if (i < redFillCount) {
+        ledsRed[i].setHSV(RED_H, RED_S, BRIGHTNESS);
+      } else {
+        ledsRed[i] = CRGB::Black;
+      }
+    }
+  } else {
+    for (int LED = 0; LED < NUM_CHASE_LEDS; LED++) {
+      ledsRed[LED] = CRGB::Black;
+    }
+    ledsRed[LEDIndex].setHSV(RED_H, RED_S, BRIGHTNESS);
+  }
+
+  // BLUE: gradual fill in active, chase in hold
+  if (blueChase) {
+    if (currentMillis - lastFillMillisBlue > fillDelay && blueFillCount < NUM_CHASE_LEDS) {
+      blueFillCount++;
+      lastFillMillisBlue = currentMillis;
+    }
+    for (int i = 0; i < NUM_CHASE_LEDS; i++) {
+      if (i < blueFillCount) {
+        ledsBlue[i].setHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+      } else {
+        ledsBlue[i] = CRGB::Black;
+      }
+    }
+  } else {
+    for (int LED = 0; LED < NUM_CHASE_LEDS; LED++) {
+      ledsBlue[LED] = CRGB::Black;
+    }
+    ledsBlue[LEDIndex].setHSV(BLUE_H, BLUE_S, BRIGHTNESS);
+  }
+
+  // Store previous states for next loop
+  prevRedChase = redChase;
+  prevBlueChase = blueChase;
+
+  // Update LEDIndex for chase effect
+  if ((timeDifference) % CHASE_PERIOD < CHASE_FREQUENCY && chaseUpdate) {
+    chaseUpdate = false;
     LEDIndex = (LEDIndex + 1) % NUM_CHASE_LEDS;
+  } else if (timeDifference % CHASE_PERIOD >= CHASE_FREQUENCY && !chaseUpdate) {
+    chaseUpdate = true;
   }
 }
 //takes a cloud number and updates that clouds lighting
