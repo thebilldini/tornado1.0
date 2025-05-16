@@ -87,6 +87,16 @@ const float CHASE_FREQUENCY = CHASE_PERIOD / 2;
 bool chaseUpdate = true;
 bool redChase, blueChase;
 
+// Place these globals near the top of your file:
+unsigned long cloudFlickerStart[NUM_CLOUDS] = {0, 0};
+unsigned long cloudFlickerDuration[NUM_CLOUDS] = {0, 0};
+bool cloudFlickerActive[NUM_CLOUDS] = {false, false};
+uint8_t cloudFlickerR[NUM_CLOUDS] = {0, 0};
+uint8_t cloudFlickerG[NUM_CLOUDS] = {0, 0};
+uint8_t cloudFlickerB[NUM_CLOUDS] = {0, 0};
+uint8_t cloudFlickerFade[NUM_CLOUDS] = {0, 0};
+unsigned long cloudFlickerFadeDuration[NUM_CLOUDS] = {0, 0}; // NEW: random fade duration
+
 void setup() {
   Serial.begin(115200);
   //setup for LEDs
@@ -348,7 +358,6 @@ void colorSet(int cloudNum) {
 void cloudLights() {
   for (int i = 0; i < NUM_CLOUDS; i++) {
     switch (cloudState[i]) {
-      //standby slowly decays the cloud to 0
       case STANDBY:
         if (cloudBrightness[i] > MIN_BRIGHTNESS && currentMillis - lastIncrement > SLOW_OFF) {
           cloudBrightness[i] = cloudBrightness[i] - FAST_DECAY_SPEED;
@@ -356,49 +365,77 @@ void cloudLights() {
           lastIncrement = currentMillis;
         }
         colorSet(i);
-        break;
-        //first flash quickly turns the cloud on
-      case FIRST_FLASH:
-        if (cloudBrightness[i] < MAX_BRIGHTNESS) {
-          cloudBrightness[i] = MAX_BRIGHTNESS;
-        }
-        colorSet(i);
-        break;
-        //split second quickly decays the cloud
-      case FIRST_BREAK:
-        if (cloudBrightness[i] > MIN_BRIGHTNESS /*&& currentMillis - lastIncrement > FAST_OFF*/) {
-          cloudBrightness[i] = cloudBrightness[i] - SLOW_DECAY_SPEED;
-          cloudBrightness[i] = max(cloudBrightness[i], 0);
-          // lastIncrement = currentMillis;
-        }
-        colorSet(i);
-        break;
-        //second flash quickly turns the cloud on
-      case SECOND_FLASH:
-        if (cloudBrightness[i] < MAX_BRIGHTNESS) {
-          cloudBrightness[i] = MAX_BRIGHTNESS;
-        }
-        colorSet(i);
+        cloudFlickerActive[i] = false;
         break;
 
-      case SECOND_BREAK:
-        if (cloudBrightness[i] > MIN_BRIGHTNESS /*&& currentMillis - lastIncrement > FAST_OFF*/) {
-          cloudBrightness[i] = cloudBrightness[i] - SLOW_DECAY_SPEED;
-          cloudBrightness[i] = max(cloudBrightness[i], 0);
-          // lastIncrement = currentMillis;
-        }
-        colorSet(i);
-        break;
-        //third flash quickly turns the cloud on
+      case FIRST_FLASH:
+      case SECOND_FLASH:
       case THIRD_FLASH:
-        if (cloudBrightness[i] < MAX_BRIGHTNESS) {
-          cloudBrightness[i] = MAX_BRIGHTNESS;
+      case FIRST_BREAK:
+      case SECOND_BREAK: {
+        cloudBrightness[i] = MAX_BRIGHTNESS;
+
+        // Randomly start a flicker (low probability each loop)
+        if (!cloudFlickerActive[i] && random(0, 100) < 2) { // ~2% chance per loop
+          cloudFlickerActive[i] = true;
+          cloudFlickerStart[i] = millis();
+          cloudFlickerDuration[i] = random(100, 300); // Flicker color duration (short)
+          cloudFlickerFadeDuration[i] = random(150, 800); // Random fade-to-white duration
+
+          // Set flicker color: red for small, blue for large
+          if (i == SMALL_CLOUD) {
+            cloudFlickerR[i] = MAX_BRIGHTNESS;
+            cloudFlickerG[i] = 0;
+            cloudFlickerB[i] = 0;
+          } else {
+            cloudFlickerR[i] = 0;
+            cloudFlickerG[i] = 0;
+            cloudFlickerB[i] = MAX_BRIGHTNESS;
+          }
+          cloudFlickerFade[i] = 255;
         }
-        colorSet(i);
+
+        // If flicker is active, handle color and fade
+        unsigned long elapsed = millis() - cloudFlickerStart[i];
+        if (cloudFlickerActive[i]) {
+          if (elapsed > (cloudFlickerDuration[i] + cloudFlickerFadeDuration[i])) {
+            cloudFlickerActive[i] = false;
+            cloudFlickerFade[i] = 0;
+          } else if (elapsed > cloudFlickerDuration[i]) {
+            // Fade out over random duration
+            unsigned long fadeElapsed = elapsed - cloudFlickerDuration[i];
+            cloudFlickerFade[i] = map(fadeElapsed, 0, cloudFlickerFadeDuration[i], 255, 0);
+          } else {
+            cloudFlickerFade[i] = 255;
+          }
+        }
+
+        // Set color: mostly white, but blend in flicker if active
+        uint8_t r = MAX_BRIGHTNESS, g = MAX_BRIGHTNESS, b = MAX_BRIGHTNESS;
+        if (cloudFlickerActive[i] && cloudFlickerFade[i] > 0) {
+          r = ((uint16_t)cloudFlickerR[i] * cloudFlickerFade[i] + MAX_BRIGHTNESS * (255 - cloudFlickerFade[i])) / 255;
+          g = ((uint16_t)cloudFlickerG[i] * cloudFlickerFade[i] + MAX_BRIGHTNESS * (255 - cloudFlickerFade[i])) / 255;
+          b = ((uint16_t)cloudFlickerB[i] * cloudFlickerFade[i] + MAX_BRIGHTNESS * (255 - cloudFlickerFade[i])) / 255;
+        }
+
+        if (i == SMALL_CLOUD) {
+          for (int p = 0; p < smallCloud.numPixels(); p++) {
+            smallCloud.setPixelColor(p, smallCloud.Color(r, g, b, 0));
+          }
+          smallCloud.show();
+        } else {
+          for (int p = 0; p < largeCloud.numPixels(); p++) {
+            largeCloud.setPixelColor(p, largeCloud.Color(r, g, b, 0));
+          }
+          largeCloud.show();
+        }
         break;
+      }
+
       case CLOUD_OFF:
         cloudBrightness[i] = MIN_BRIGHTNESS;
         colorSet(i);
+        cloudFlickerActive[i] = false;
         break;
     }
     Serial.print(i);
