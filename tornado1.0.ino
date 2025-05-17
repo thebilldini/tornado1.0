@@ -367,6 +367,11 @@ void colorSet(int cloudNum) {
 }
 //adjusts the brightness of the clouds and calls the update function
 void cloudLights() {
+  // Separate lightning state for each cloud
+  static uint8_t lightningIntensity[NUM_CLOUDS] = {0, 0};
+  static unsigned long lightningLastUpdate[NUM_CLOUDS] = {0, 0};
+  static unsigned long lightningNextFlash[NUM_CLOUDS] = {0, 0};
+
   for (int i = 0; i < NUM_CLOUDS; i++) {
     switch (cloudState[i]) {
       case STANDBY:
@@ -386,59 +391,66 @@ void cloudLights() {
       case SECOND_BREAK: {
         cloudBrightness[i] = MAX_BRIGHTNESS;
 
-        // Randomly start a flicker (low probability each loop)
-        if (!cloudFlickerActive[i] && random(0, 100) < 2) { // ~2% chance per loop
-          cloudFlickerActive[i] = true;
-          cloudFlickerStart[i] = millis();
-          cloudFlickerDuration[i] = random(100, 300); // Flicker color duration (short)
-          cloudFlickerFadeDuration[i] = random(150, 800); // Random fade-to-white duration
+        // Lightning logic for both clouds
+        unsigned long now = millis();
 
-          // Set flicker color: red for small, blue for large
-          if (i == SMALL_CLOUD) {
-            cloudFlickerR[i] = MAX_BRIGHTNESS;
-            cloudFlickerG[i] = 0;
-            cloudFlickerB[i] = 0;
-          } else {
-            cloudFlickerR[i] = 0;
-            cloudFlickerG[i] = 0;
-            cloudFlickerB[i] = MAX_BRIGHTNESS;
-          }
-          cloudFlickerFade[i] = 255;
+        // Time for next flash?
+        if (lightningIntensity[i] == 0 && now > lightningNextFlash[i]) {
+          lightningIntensity[i] = random(128, 256); // random intensity (128-255)
+          lightningLastUpdate[i] = now;
+          lightningNextFlash[i] = now + random(1000, 4000); // next flash in 1-4 seconds
         }
 
-        // If flicker is active, handle color and fade
-        unsigned long elapsed = millis() - cloudFlickerStart[i];
-        if (cloudFlickerActive[i]) {
-          if (elapsed > (cloudFlickerDuration[i] + cloudFlickerFadeDuration[i])) {
-            cloudFlickerActive[i] = false;
-            cloudFlickerFade[i] = 0;
-          } else if (elapsed > cloudFlickerDuration[i]) {
-            // Fade out over random duration
-            unsigned long fadeElapsed = elapsed - cloudFlickerDuration[i];
-            cloudFlickerFade[i] = map(fadeElapsed, 0, cloudFlickerFadeDuration[i], 255, 0);
-          } else {
-            cloudFlickerFade[i] = 255;
+        // Fade lightning
+        if (lightningIntensity[i] > 0) {
+          for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
+            uint8_t white = lightningIntensity[i];
+            uint8_t baseR = (i == SMALL_CLOUD) ? MAX_BRIGHTNESS - (lightningIntensity[i] / 2) : 0;
+            uint8_t baseG = 0;
+            uint8_t baseB = (i == LARGE_CLOUD) ? MAX_BRIGHTNESS - (lightningIntensity[i] / 2) : 0;
+            // Both clouds: white lightning, fade to base color
+            if (i == SMALL_CLOUD) {
+              smallCloud.setPixelColor(
+                p,
+                smallCloud.Color(
+                  baseR + white, // R
+                  baseG + white, // G
+                  baseB + white, // B
+                  0
+                )
+              );
+            } else {
+              largeCloud.setPixelColor(
+                p,
+                largeCloud.Color(
+                  baseR + white, // R
+                  baseG + white, // G
+                  baseB + white, // B
+                  0
+                )
+              );
+            }
           }
-        }
+          if (i == SMALL_CLOUD) smallCloud.show();
+          else largeCloud.show();
 
-        // Set color: mostly white, but blend in flicker if active
-        uint8_t r = MAX_BRIGHTNESS, g = MAX_BRIGHTNESS, b = MAX_BRIGHTNESS;
-        if (cloudFlickerActive[i] && cloudFlickerFade[i] > 0) {
-          r = ((uint16_t)cloudFlickerR[i] * cloudFlickerFade[i] + MAX_BRIGHTNESS * (255 - cloudFlickerFade[i])) / 255;
-          g = ((uint16_t)cloudFlickerG[i] * cloudFlickerFade[i] + MAX_BRIGHTNESS * (255 - cloudFlickerFade[i])) / 255;
-          b = ((uint16_t)cloudFlickerB[i] * cloudFlickerFade[i] + MAX_BRIGHTNESS * (255 - cloudFlickerFade[i])) / 255;
-        }
-
-        if (i == SMALL_CLOUD) {
-          for (int p = 0; p < smallCloud.numPixels(); p++) {
-            smallCloud.setPixelColor(p, smallCloud.Color(r, g, b, 0));
+          // Fade out
+          if (now - lightningLastUpdate[i] > 20) { // fade speed
+            if (lightningIntensity[i] > 8) lightningIntensity[i] -= 8;
+            else lightningIntensity[i] = 0;
+            lightningLastUpdate[i] = now;
           }
-          smallCloud.show();
         } else {
-          for (int p = 0; p < largeCloud.numPixels(); p++) {
-            largeCloud.setPixelColor(p, largeCloud.Color(r, g, b, 0));
+          // Solid base color
+          for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
+            if (i == SMALL_CLOUD) {
+              smallCloud.setPixelColor(p, smallCloud.Color(MAX_BRIGHTNESS, 0, 0, 0));
+            } else {
+              largeCloud.setPixelColor(p, largeCloud.Color(0, 0, MAX_BRIGHTNESS, 0));
+            }
           }
-          largeCloud.show();
+          if (i == SMALL_CLOUD) smallCloud.show();
+          else largeCloud.show();
         }
         break;
       }
