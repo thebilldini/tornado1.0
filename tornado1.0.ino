@@ -20,7 +20,7 @@ const int CHASE_GAP = 7;
 #define NUM_LEDS_SMALL_CLOUD 49
 #define NUM_LEDS_LARGE_CLOUD 56
 #define BRIGHTNESS 255
-#define BLUE_H 170
+#define BLUE_H 150
 #define BLUE_S 255
 #define RED_H 0
 #define RED_S 255
