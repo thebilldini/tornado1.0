@@ -109,6 +109,10 @@ const unsigned long LIGHTNING_INTERVAL_FAST_MIN   = 400;   // was 200
 const unsigned long LIGHTNING_INTERVAL_FAST_MAX   = 2000;  // was 1000
 unsigned long fillHoldTime = 500; // will be randomized between 50 and 1000 ms
 
+// Add this global near the top (after other globals)
+unsigned long buttonLEDTimer = 0;
+bool buttonLEDState = false;
+
 void setup() {
   Serial.begin(115200);
   //setup for LEDs
@@ -418,58 +422,48 @@ void cloudLights() {
         if (lightningIntensity[i] > 0) {
           for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
             uint8_t white = lightningIntensity[i];
-            uint8_t baseR, baseG = 0, baseB;
+
+            // Determine the base color for this cloud
+            uint8_t baseR = 0, baseG = 0, baseB = 0;
             if (bothActive) {
-              // Purple base
-              baseR = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
-              baseB = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
+              // Both clouds: purple (255,0,255)
+              baseR = 255; baseG = 0; baseB = 255;
             } else if (i == SMALL_CLOUD) {
-              baseR = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
-              baseB = 0;
+              // Small cloud: red (255,0,0)
+              baseR = 255; baseG = 0; baseB = 0;
             } else {
-              baseR = 0;
-              baseB = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
+              // Large cloud: blue (0,0,255)
+              baseR = 0; baseG = 0; baseB = 255;
             }
-            // White lightning, fade to base color
+
+            // Interpolate from white (255,255,255) to base color as lightningIntensity fades
+            float t = 1.0f - (white / 255.0f); // t=0: white, t=1: base color
+            uint8_t r = (uint8_t)((1.0f - t) * 255 + t * baseR);
+            uint8_t g = (uint8_t)((1.0f - t) * 255 + t * baseG);
+            uint8_t b = (uint8_t)((1.0f - t) * 255 + t * baseB);
+
             if (i == SMALL_CLOUD) {
-              smallCloud.setPixelColor(
-                p,
-                smallCloud.Color(
-                  baseR + white, // R
-                  baseG + white, // G
-                  baseB + white, // B
-                  0
-                )
-              );
+              smallCloud.setPixelColor(p, smallCloud.Color(r, g, b, 0));
             } else {
-              largeCloud.setPixelColor(
-                p,
-                largeCloud.Color(
-                  baseR + white, // R
-                  baseG + white, // G
-                  baseB + white, // B
-                  0
-                )
-              );
+              largeCloud.setPixelColor(p, largeCloud.Color(r, g, b, 0));
             }
           }
           if (i == SMALL_CLOUD) smallCloud.show();
           else largeCloud.show();
 
-          // Fade out: fade duration is proportional to intensity
-          // Higher intensity = slower fade (longer duration per step)
-          // Map intensity 128-255 to fadeDelay 1-6 ms (much faster fade)
-          uint8_t minDelay = 1;
-          uint8_t maxDelay = 6;
-          uint8_t fadeDelay = map(lightningIntensity[i], 50, 255, minDelay, maxDelay);
+          // Smoother fade: smaller decrement, more steps, and time-based
+          uint8_t minDelay = 2;
+          uint8_t maxDelay = 10;
+          uint8_t fadeDelay = map(lightningIntensity[i], 1, 255, maxDelay, minDelay);
 
-          if (now - lightningLastUpdate[i] > fadeDelay) {
-            if (lightningIntensity[i] > 16) lightningIntensity[i] -= 16; // fade faster per step
+          static uint32_t lastFade[NUM_CLOUDS] = {0, 0};
+          if (now - lastFade[i] > fadeDelay) {
+            if (lightningIntensity[i] > 4) lightningIntensity[i] -= 4; // very smooth fade
             else lightningIntensity[i] = 0;
-            lightningLastUpdate[i] = now;
+            lastFade[i] = now;
           }
         } else {
-          // Solid base color
+          // Solid base color (unchanged)
           for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
             if (bothActive) {
               // Purple
@@ -503,10 +497,31 @@ void cloudLights() {
 }
 //changes the blowers and button LEDS in accordance with the current state of their corresponding chase.
 void blowers() {
+  unsigned long now = millis();
+
+  // RED BUTTON LED
+  unsigned long redInterval = redChase ? 500 : 1000;
+  static unsigned long redLastToggle = 0;
+  static bool redState = false;
+  if (now - redLastToggle >= redInterval) {
+    redLastToggle = now;
+    redState = !redState;
+  }
+  digitalWrite(RED_BUTTON_LED, redState ? HIGH : LOW);
+
+  // BLUE BUTTON LED
+  unsigned long blueInterval = blueChase ? 500 : 1000;
+  static unsigned long blueLastToggle = 0;
+  static bool blueState = false;
+  if (now - blueLastToggle >= blueInterval) {
+    blueLastToggle = now;
+    blueState = !blueState;
+  }
+  digitalWrite(BLUE_BUTTON_LED, blueState ? HIGH : LOW);
+
+  // Blower outputs (unchanged)
   digitalWrite(RED_BUTTON_OUTPUT, redChase);
-  digitalWrite(RED_BUTTON_LED, !redChase);
   digitalWrite(BLUE_BUTTON_OUTPUT, blueChase);
-  digitalWrite(BLUE_BUTTON_LED, !blueChase);
 }
 
 // New function for gradual fill effect
