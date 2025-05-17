@@ -381,13 +381,13 @@ void cloudLights() {
   static unsigned long lightningLastUpdate[NUM_CLOUDS] = {0, 0};
   static unsigned long lightningNextFlash[NUM_CLOUDS] = {0, 0};
 
-  // Determine if both clouds are active (purple mode)
-  bool bothActive = (cloudState[SMALL_CLOUD] >= FIRST_FLASH && cloudState[SMALL_CLOUD] <= SECOND_BREAK) &&
-                    (cloudState[LARGE_CLOUD] >= FIRST_FLASH && cloudState[LARGE_CLOUD] <= SECOND_BREAK);
+  // Determine if both clouds are active (BOTH_ACTIVE state)
+  bool bothActive = (state == BOTH_ACTIVE);
 
   for (int i = 0; i < NUM_CLOUDS; i++) {
     switch (cloudState[i]) {
       case STANDBY:
+        // No lightning in standby
         if (cloudBrightness[i] > MIN_BRIGHTNESS && currentMillis - lastIncrement > SLOW_OFF) {
           cloudBrightness[i] = cloudBrightness[i] - FAST_DECAY_SPEED;
           cloudBrightness[i] = max(cloudBrightness[i], 0);
@@ -395,6 +395,7 @@ void cloudLights() {
         }
         colorSet(i);
         cloudFlickerActive[i] = false;
+        lightningIntensity[i] = 0;
         break;
 
       case FIRST_FLASH:
@@ -403,80 +404,67 @@ void cloudLights() {
       case FIRST_BREAK:
       case SECOND_BREAK: {
         cloudBrightness[i] = MAX_BRIGHTNESS;
-
-        // Lightning logic for both clouds
         unsigned long now = millis();
 
-        // Lightning interval: faster if both clouds are active
-        unsigned long lightningMin = bothActive ? LIGHTNING_INTERVAL_FAST_MIN : LIGHTNING_INTERVAL_NORMAL_MIN;
-        unsigned long lightningMax = bothActive ? LIGHTNING_INTERVAL_FAST_MAX : LIGHTNING_INTERVAL_NORMAL_MAX;
+        if (bothActive) {
+          // Lightning logic (only when both sides are active)
+          unsigned long lightningMin = LIGHTNING_INTERVAL_FAST_MIN;
+          unsigned long lightningMax = LIGHTNING_INTERVAL_FAST_MAX;
 
-        // Time for next flash?
-        if (lightningIntensity[i] == 0 && now > lightningNextFlash[i]) {
-          lightningIntensity[i] = random(128, 256); // random intensity (128-255)
-          lightningLastUpdate[i] = now;
-          lightningNextFlash[i] = now + random(lightningMin, lightningMax); // next flash
-        }
-
-        // Fade lightning
-        if (lightningIntensity[i] > 0) {
-          for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
-            uint8_t white = lightningIntensity[i];
-
-            // Determine the base color for this cloud
-            uint8_t baseR = 0, baseG = 0, baseB = 0;
-            if (bothActive) {
-              // Both clouds: purple (255,0,255)
-              baseR = 255; baseG = 0; baseB = 255;
-            } else if (i == SMALL_CLOUD) {
-              // Small cloud: red (255,0,0)
-              baseR = 255; baseG = 0; baseB = 0;
-            } else {
-              // Large cloud: blue (0,0,255)
-              baseR = 0; baseG = 0; baseB = 255;
-            }
-
-            // Interpolate from white (255,255,255) to base color as lightningIntensity fades
-            float t = 1.0f - (white / 255.0f); // t=0: white, t=1: base color
-            uint8_t r = (uint8_t)((1.0f - t) * 255 + t * baseR);
-            uint8_t g = (uint8_t)((1.0f - t) * 255 + t * baseG);
-            uint8_t b = (uint8_t)((1.0f - t) * 255 + t * baseB);
-
-            if (i == SMALL_CLOUD) {
-              smallCloud.setPixelColor(p, smallCloud.Color(r, g, b, 0));
-            } else {
-              largeCloud.setPixelColor(p, largeCloud.Color(r, g, b, 0));
-            }
+          if (lightningIntensity[i] == 0 && now > lightningNextFlash[i]) {
+            lightningIntensity[i] = random(128, 256); // random intensity (128-255)
+            lightningLastUpdate[i] = now;
+            lightningNextFlash[i] = now + random(lightningMin, lightningMax); // next flash
           }
-          if (i == SMALL_CLOUD) smallCloud.show();
-          else largeCloud.show();
 
-          // Smoother fade: smaller decrement, more steps, and time-based
-          uint8_t minDelay = 2;
-          uint8_t maxDelay = 10;
-          uint8_t fadeDelay = map(lightningIntensity[i], 1, 255, maxDelay, minDelay);
+          // Fade lightning
+          if (lightningIntensity[i] > 0) {
+            for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
+              uint8_t white = lightningIntensity[i];
+              // Always purple as base color when bothActive
+              uint8_t baseR = 255, baseG = 0, baseB = 255;
+              float blend = white / 255.0f;
+              uint8_t r = (uint8_t)(blend * 255 + (1.0f - blend) * baseR);
+              uint8_t g = (uint8_t)(blend * 255 + (1.0f - blend) * baseG);
+              uint8_t b = (uint8_t)(blend * 255 + (1.0f - blend) * baseB);
 
-          static uint32_t lastFade[NUM_CLOUDS] = {0, 0};
-          if (now - lastFade[i] > fadeDelay) {
-            if (lightningIntensity[i] > 4) lightningIntensity[i] -= 4; // very smooth fade
-            else lightningIntensity[i] = 0;
-            lastFade[i] = now;
-          }
-        } else {
-          // Solid base color (unchanged)
-          for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
-            if (bothActive) {
-              // Purple
+              if (i == SMALL_CLOUD)
+                smallCloud.setPixelColor(p, smallCloud.Color(r, g, b, 0));
+              else
+                largeCloud.setPixelColor(p, largeCloud.Color(r, g, b, 0));
+            }
+            if (i == SMALL_CLOUD) smallCloud.show();
+            else largeCloud.show();
+
+            uint8_t minDelay = 2;
+            uint8_t maxDelay = 10;
+            uint8_t fadeDelay = map(lightningIntensity[i], 1, 255, maxDelay, minDelay);
+
+            static uint32_t lastFade[NUM_CLOUDS] = {0, 0};
+            if (now - lastFade[i] > fadeDelay) {
+              if (lightningIntensity[i] > 4) lightningIntensity[i] -= 4;
+              else lightningIntensity[i] = 0;
+              lastFade[i] = now;
+            }
+          } else {
+            // Solid purple base color
+            for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
               if (i == SMALL_CLOUD)
                 smallCloud.setPixelColor(p, smallCloud.Color(MAX_BRIGHTNESS, 0, MAX_BRIGHTNESS, 0));
               else
                 largeCloud.setPixelColor(p, largeCloud.Color(MAX_BRIGHTNESS, 0, MAX_BRIGHTNESS, 0));
-            } else {
-              if (i == SMALL_CLOUD)
-                smallCloud.setPixelColor(p, smallCloud.Color(MAX_BRIGHTNESS, 0, 0, 0));
-              else
-                largeCloud.setPixelColor(p, largeCloud.Color(0, 0, MAX_BRIGHTNESS, 0));
             }
+            if (i == SMALL_CLOUD) smallCloud.show();
+            else largeCloud.show();
+          }
+        } else {
+          // Not bothActive: always show solid base color, no lightning
+          lightningIntensity[i] = 0;
+          for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
+            if (i == SMALL_CLOUD)
+              smallCloud.setPixelColor(p, smallCloud.Color(MAX_BRIGHTNESS, 0, 0, 0));
+            else
+              largeCloud.setPixelColor(p, largeCloud.Color(0, 0, MAX_BRIGHTNESS, 0));
           }
           if (i == SMALL_CLOUD) smallCloud.show();
           else largeCloud.show();
@@ -488,6 +476,7 @@ void cloudLights() {
         cloudBrightness[i] = MIN_BRIGHTNESS;
         colorSet(i);
         cloudFlickerActive[i] = false;
+        lightningIntensity[i] = 0;
         break;
     }
     Serial.print(i);
@@ -499,8 +488,23 @@ void cloudLights() {
 void blowers() {
   unsigned long now = millis();
 
+  // Set button flash interval based on state
+  unsigned long redInterval, blueInterval;
+  if (state == BOTH_ACTIVE) {
+    redInterval = 250;
+    blueInterval = 250;
+  } else if (redChase) {
+    redInterval = 500;
+    blueInterval = 1000;
+  } else if (blueChase) {
+    redInterval = 1000;
+    blueInterval = 500;
+  } else {
+    redInterval = 1000;
+    blueInterval = 1000;
+  }
+
   // RED BUTTON LED
-  unsigned long redInterval = redChase ? 500 : 1000;
   static unsigned long redLastToggle = 0;
   static bool redState = false;
   if (now - redLastToggle >= redInterval) {
@@ -510,7 +514,6 @@ void blowers() {
   digitalWrite(RED_BUTTON_LED, redState ? HIGH : LOW);
 
   // BLUE BUTTON LED
-  unsigned long blueInterval = blueChase ? 500 : 1000;
   static unsigned long blueLastToggle = 0;
   static bool blueState = false;
   if (now - blueLastToggle >= blueInterval) {
@@ -533,7 +536,8 @@ void gradualFillEffect() {
   // Check if both are active
   bool bothActive = redChase && blueChase;
 
-  unsigned long fillStepTime = bothActive ? FILL_STEP_TIME_FAST : FILL_STEP_TIME_NORMAL;
+  // 2x faster fill
+  unsigned long fillStepTime = (bothActive ? FILL_STEP_TIME_FAST : FILL_STEP_TIME_NORMAL) / 2;
 
   // Reset if state just became active
   if (!fillBlanked && fillIndex == 0) {
