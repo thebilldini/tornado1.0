@@ -101,8 +101,13 @@ unsigned long cloudFlickerFadeDuration[NUM_CLOUDS] = {0, 0}; // NEW: random fade
 unsigned long fillStartMillis = 0;
 int fillIndex = 0;
 bool fillBlanked = false;
-const unsigned long FILL_STEP_TIME = 20; // ms per LED fill
-const unsigned long FILL_HOLD_TIME = 200; // ms to hold before blanking
+const unsigned long FILL_STEP_TIME_NORMAL = 20; // ms per LED fill
+const unsigned long FILL_STEP_TIME_FAST = 5;   // ms per LED fill when both active
+const unsigned long LIGHTNING_INTERVAL_NORMAL_MIN = 2000;  // was 1000
+const unsigned long LIGHTNING_INTERVAL_NORMAL_MAX = 8000;  // was 4000
+const unsigned long LIGHTNING_INTERVAL_FAST_MIN   = 400;   // was 200
+const unsigned long LIGHTNING_INTERVAL_FAST_MAX   = 2000;  // was 1000
+unsigned long fillHoldTime = 500; // will be randomized between 50 and 1000 ms
 
 void setup() {
   Serial.begin(115200);
@@ -372,6 +377,10 @@ void cloudLights() {
   static unsigned long lightningLastUpdate[NUM_CLOUDS] = {0, 0};
   static unsigned long lightningNextFlash[NUM_CLOUDS] = {0, 0};
 
+  // Determine if both clouds are active (purple mode)
+  bool bothActive = (cloudState[SMALL_CLOUD] >= FIRST_FLASH && cloudState[SMALL_CLOUD] <= SECOND_BREAK) &&
+                    (cloudState[LARGE_CLOUD] >= FIRST_FLASH && cloudState[LARGE_CLOUD] <= SECOND_BREAK);
+
   for (int i = 0; i < NUM_CLOUDS; i++) {
     switch (cloudState[i]) {
       case STANDBY:
@@ -394,21 +403,34 @@ void cloudLights() {
         // Lightning logic for both clouds
         unsigned long now = millis();
 
+        // Lightning interval: faster if both clouds are active
+        unsigned long lightningMin = bothActive ? LIGHTNING_INTERVAL_FAST_MIN : LIGHTNING_INTERVAL_NORMAL_MIN;
+        unsigned long lightningMax = bothActive ? LIGHTNING_INTERVAL_FAST_MAX : LIGHTNING_INTERVAL_NORMAL_MAX;
+
         // Time for next flash?
         if (lightningIntensity[i] == 0 && now > lightningNextFlash[i]) {
           lightningIntensity[i] = random(128, 256); // random intensity (128-255)
           lightningLastUpdate[i] = now;
-          lightningNextFlash[i] = now + random(1000, 4000); // next flash in 1-4 seconds
+          lightningNextFlash[i] = now + random(lightningMin, lightningMax); // next flash
         }
 
         // Fade lightning
         if (lightningIntensity[i] > 0) {
           for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
             uint8_t white = lightningIntensity[i];
-            uint8_t baseR = (i == SMALL_CLOUD) ? MAX_BRIGHTNESS - (lightningIntensity[i] / 2) : 0;
-            uint8_t baseG = 0;
-            uint8_t baseB = (i == LARGE_CLOUD) ? MAX_BRIGHTNESS - (lightningIntensity[i] / 2) : 0;
-            // Both clouds: white lightning, fade to base color
+            uint8_t baseR, baseG = 0, baseB;
+            if (bothActive) {
+              // Purple base
+              baseR = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
+              baseB = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
+            } else if (i == SMALL_CLOUD) {
+              baseR = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
+              baseB = 0;
+            } else {
+              baseR = 0;
+              baseB = MAX_BRIGHTNESS - (lightningIntensity[i] / 2);
+            }
+            // White lightning, fade to base color
             if (i == SMALL_CLOUD) {
               smallCloud.setPixelColor(
                 p,
@@ -434,19 +456,32 @@ void cloudLights() {
           if (i == SMALL_CLOUD) smallCloud.show();
           else largeCloud.show();
 
-          // Fade out
-          if (now - lightningLastUpdate[i] > 20) { // fade speed
-            if (lightningIntensity[i] > 8) lightningIntensity[i] -= 8;
+          // Fade out: fade duration is proportional to intensity
+          // Higher intensity = slower fade (longer duration per step)
+          // Map intensity 128-255 to fadeDelay 1-6 ms (much faster fade)
+          uint8_t minDelay = 1;
+          uint8_t maxDelay = 6;
+          uint8_t fadeDelay = map(lightningIntensity[i], 50, 255, minDelay, maxDelay);
+
+          if (now - lightningLastUpdate[i] > fadeDelay) {
+            if (lightningIntensity[i] > 16) lightningIntensity[i] -= 16; // fade faster per step
             else lightningIntensity[i] = 0;
             lightningLastUpdate[i] = now;
           }
         } else {
           // Solid base color
           for (int p = 0; p < (i == SMALL_CLOUD ? smallCloud.numPixels() : largeCloud.numPixels()); p++) {
-            if (i == SMALL_CLOUD) {
-              smallCloud.setPixelColor(p, smallCloud.Color(MAX_BRIGHTNESS, 0, 0, 0));
+            if (bothActive) {
+              // Purple
+              if (i == SMALL_CLOUD)
+                smallCloud.setPixelColor(p, smallCloud.Color(MAX_BRIGHTNESS, 0, MAX_BRIGHTNESS, 0));
+              else
+                largeCloud.setPixelColor(p, largeCloud.Color(MAX_BRIGHTNESS, 0, MAX_BRIGHTNESS, 0));
             } else {
-              largeCloud.setPixelColor(p, largeCloud.Color(0, 0, MAX_BRIGHTNESS, 0));
+              if (i == SMALL_CLOUD)
+                smallCloud.setPixelColor(p, smallCloud.Color(MAX_BRIGHTNESS, 0, 0, 0));
+              else
+                largeCloud.setPixelColor(p, largeCloud.Color(0, 0, MAX_BRIGHTNESS, 0));
             }
           }
           if (i == SMALL_CLOUD) smallCloud.show();
@@ -480,13 +515,19 @@ void gradualFillEffect() {
   static int maxFill = NUM_CHASE_LEDS;
   unsigned long now = millis();
 
+  // Check if both are active
+  bool bothActive = redChase && blueChase;
+
+  unsigned long fillStepTime = bothActive ? FILL_STEP_TIME_FAST : FILL_STEP_TIME_NORMAL;
+
   // Reset if state just became active
   if (!fillBlanked && fillIndex == 0) {
     fillStartMillis = now;
+    fillHoldTime = random(50, 1001); // randomize hold time between 50 and 1000 ms
   }
 
   // Gradually fill
-  if (!fillBlanked && fillIndex < maxFill && now - lastStep > FILL_STEP_TIME) {
+  if (!fillBlanked && fillIndex < maxFill && now - lastStep > fillStepTime) {
     lastStep = now;
     fillIndex++;
     // Fill red
@@ -510,7 +551,7 @@ void gradualFillEffect() {
   }
 
   // Hold full for a moment, then blank all at once
-  if (!fillBlanked && fillIndex >= maxFill && now - fillStartMillis > (FILL_STEP_TIME * maxFill + FILL_HOLD_TIME)) {
+  if (!fillBlanked && fillIndex >= maxFill && now - fillStartMillis > (fillStepTime * maxFill + fillHoldTime)) {
     fillBlanked = true;
     // Blank all
     for (int i = 0; i < maxFill; i++) {
@@ -521,9 +562,10 @@ void gradualFillEffect() {
   }
 
   // After blank, reset for next cycle
-  if (fillBlanked && now - lastStep > FILL_HOLD_TIME) {
+  if (fillBlanked && now - lastStep > fillHoldTime) {
     fillIndex = 0;
     fillBlanked = false;
     fillStartMillis = now;
+    fillHoldTime = random(50, 1001); // randomize again for next cycle
   }
 }
